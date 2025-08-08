@@ -1,65 +1,50 @@
-# agents/writer.py
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-def writer_node(state):
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, max_tokens=1200)
 
-    # Tvoj prompt – odličan za prirodan stil
-    prompt = f"""
-You are a content writer helping me create a blog post for my WordPress site.
+PROMPT = """Write a blog post in clean Markdown for Trend Squeeze.
+Constraints:
+- Language: Serbian (sr)
+- Audience: tech/AI/marketing-savvy readers
+- Structure: H1 title, intro, 3–5 H2 sections, short paragraphs, bullets where useful, conclusion
+- Tone: clear, practical, mildly energetic
+- Include sources/links if needed (few, credible)
+- Avoid clickbait; be specific
+- Output must end with a line: [IMAGE_PROMPT]: <short visual description for a wide 1792x1024 header>
 
-Here’s your task:
-Using the following Reddit post as inspiration, write a full blog article. The tone should be friendly, personal, and natural — like you're talking to a curious friend over coffee.
-
----
-🔹 Reddit Post:
-Title: {state['original_post']['title']}
-Description: {state['original_post']['summary']}
----
-
-🎯 Goal:
-Turn this into an engaging blog post that would perform well on Medium or similar platforms. Add a catchy title and optional subheading.
-
-📌 Write using these style rules:
-
-* **Use clear, everyday language:** Simple words. Short sentences. Write like a human, not a robot.
-* **No clichés or hype words:** Avoid terms like “game-changer” or “revolutionize.” Just be real.
-* **Be direct:** Get to the point fast. Cut the fluff.
-* **Use a natural voice:** It's okay to start sentences with "But" or "So." Write like you speak.
-* **Focus on value:** Don’t oversell. Instead, explain the benefit honestly.
-* **Be human:** Don’t fake excitement. Just share what’s interesting, surprising, or useful.
-* **Light structure:** Use short paragraphs, subheadings, and maybe a few bullet points.
-* **Emotion + story welcome:** Share small stories or examples if it helps explain the point.
-* **Title must be catchy and relevant.**
-
-⛔ Avoid:
-- Robotic or overly formal tone
-- Long, dense paragraphs
-- Generic summaries or filler content
-
-✅ Do:
-- Write in first person if it makes sense
-- Use contractions ("I'm", "it's", etc.)
-- Keep it scannable and interesting
-
-Now go ahead and write the blog post. Start with a headline, then dive right into the story or explanation.
-
-At the end, add:
-[IMAGE_PROMPT]: A detailed description for a wide-format AI-generated image (1792x1024) that captures the essence of the article.
+Context:
+Category: {category}
+Original Title: {title}
+Summary/Notes: {summary}
+Source URL: {url}
 """
 
-    response = llm.invoke([HumanMessage(content=prompt)])
-    content = response.content
+def writer_node(state: dict) -> dict:
+    post = state.get("original_post", {})
+    if not post:
+        return {
+            "status": "skip",
+            "messages": [HumanMessage(content="No original_post; skipping writer")]
+        }
 
-    if "[IMAGE_PROMPT]:" in content:
-        article, img_prompt = content.split("[IMAGE_PROMPT]:", 1)
-    else:
-        article, img_prompt = content, "A wide, cinematic view representing the core idea of the article, 1792x1024"
+    category = state.get("category") or post.get("category_hint") or "Interesting"
+    resp = _llm.invoke(PROMPT.format(
+        category=category,
+        title=post.get("title", ""),
+        summary=post.get("summary", ""),
+        url=post.get("url", ""),
+    ))
+
+    content = resp.content.strip()
+    image_prompt = "Neutral editorial header, technology, minimal, wide 1792x1024"
+    marker = "[IMAGE_PROMPT]:"
+    if marker in content:
+        image_prompt = content.split(marker, 1)[1].strip().strip("[] ").strip()
 
     return {
-        "draft_article": article.strip(),
-        "image_prompt": img_prompt.strip(),
-        "messages": [HumanMessage(content="Writer: article drafted in natural tone")],
-        "status": "written"
+        "status": "draft_ready",
+        "draft_article": content,
+        "image_prompt": image_prompt,
+        "messages": [HumanMessage(content=f"Draft ready ({len(content)} chars)")]
     }
