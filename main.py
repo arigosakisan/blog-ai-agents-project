@@ -5,57 +5,38 @@ import signal
 import traceback
 from datetime import datetime, timezone
 
-# LangGraph
 from langgraph.graph import StateGraph, END
 
-# Tvoji agenti
 from agents.researcher import researcher_node
 from agents.curator import curator_node
 from agents.writer import writer_node
 from agents.editor import editor_node
 from agents.publisher import publisher_node
 
-# -------------------------
-# Konfiguracija
-# -------------------------
-
-# Pauza između ciklusa (sekunde). Možeš menjati env var-om WORKER_SLEEP_SECS
-SLEEP_SECS_DEFAULT = 7200  # 2h
-SLEEP_SECS = int(os.getenv("WORKER_SLEEP_SECS", SLEEP_SECS_DEFAULT))
-
-# Maks backoff na grešku (sekunde)
-MAX_BACKOFF = 300  # 5 min
-
-# Heartbeat period (sekunde) — na koliko često logujemo da smo "živi"
-HEARTBEAT_EVERY = 60
+# ---------- Config ----------
+SLEEP_SECS = int(os.getenv("WORKER_SLEEP_SECS", "7200"))  # pauza između ciklusa (default 2h)
+HEARTBEAT_EVERY = int(os.getenv("HEARTBEAT_EVERY", "60"))  # heartbeat na X sekundi
+MAX_BACKOFF = int(os.getenv("MAX_BACKOFF", "300"))  # max backoff 5 min
 
 SHUTDOWN = False
 
 
-def _now() -> str:
-    """ISO vreme u UTC (za logove)."""
+def _now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-def handle_signal(signum, frame):
+def _handle_signal(signum, _frame):
     global SHUTDOWN
     SHUTDOWN = True
     print(f"[worker] {_now()} got signal {signum}, shutting down...", flush=True)
 
 
-for sig in (signal.SIGTERM, signal.SIGINT):
-    signal.signal(sig, handle_signal)
+for _sig in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(_sig, _handle_signal)
 
 
-# -------------------------
-# LangGraph definicija grafa
-# -------------------------
-
+# ---------- LangGraph ----------
 def build_app():
-    """
-    Sastavi LangGraph sa uslovnim granama, pa ga compile-uj.
-    Svaki čvor vraća dict i koristimo 'status' polja za rutiranje.
-    """
     def route_from_researcher(state: dict):
         return "curator" if state.get("status") == "research_done" else END
 
@@ -88,51 +69,32 @@ def build_app():
     return app
 
 
-# -------------------------
-# Jedan ciklus izvršavanja
-# -------------------------
-
+# ---------- One cycle ----------
 def one_cycle(app):
-    """
-    Pokreće jedan prolaz grafa. Početni state je prazan dict.
-    Svaki agent dopisuje šta treba (npr. original_post, category, draft_article, final_article...).
-    """
     print(f"[worker] {_now()} cycle start", flush=True)
-
-    # Početni state po potrebi može imati globalne postavke; ostavljamo prazno.
     init_state = {}
-
     try:
-        # app.invoke vrati finalni state nakon rute do END
         final_state = app.invoke(init_state)
-
-        # Opcioni debug print (kratko)
         status = final_state.get("status")
         post_id = final_state.get("post_id")
         post_link = final_state.get("post_link")
         print(f"[worker] {_now()} cycle done - status={status} post_id={post_id} link={post_link}", flush=True)
-
     except Exception as e:
         print(f"[worker] {_now()} cycle error: {e}", flush=True)
         traceback.print_exc()
-        # Propusti izuzetak do gornjeg handlera (glavna petlja radi backoff)
         raise
 
 
-# -------------------------
-# Glavna petlja 24/7
-# -------------------------
-
+# ---------- Main loop ----------
 def main_loop():
     app = build_app()
-    backoff = 5  # početni retry delay u sekundama
+    backoff = 5
 
     while not SHUTDOWN:
         try:
             one_cycle(app)
-            backoff = 5  # reset backoff-a nakon uspešnog ciklusa
+            backoff = 5  # reset posle uspeha
 
-            # Pauza između ciklusa sa heartbeat-om
             elapsed = 0
             while elapsed < SLEEP_SECS and not SHUTDOWN:
                 if elapsed % HEARTBEAT_EVERY == 0:
@@ -142,7 +104,6 @@ def main_loop():
                 elapsed += 1
 
         except Exception:
-            # Greška u ciklusu → exponential backoff, pa pokušaj opet
             delay = min(backoff, MAX_BACKOFF)
             print(f"[worker] {_now()} retry in {delay}s...", flush=True)
             slept = 0
