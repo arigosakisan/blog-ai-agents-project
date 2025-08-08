@@ -1,32 +1,39 @@
 # agents/researcher.py
-import feedparser
+import requests
 from langchain_core.messages import HumanMessage
 
+UA = {"User-Agent": "trendsqueeze-bot/1.0 (+https://trendsqueeze.com)"}
+
+FEEDS = {
+    "AI": "https://www.reddit.com/r/artificial/top.json?t=day&limit=25",
+    "Tech": "https://www.reddit.com/r/technology/top.json?t=day&limit=25",
+    "Science": "https://www.reddit.com/r/science/top.json?t=day&limit=25",
+    "Futurology": "https://www.reddit.com/r/futurology/top.json?t=day&limit=25",
+    "Interesting": "https://www.reddit.com/r/interestingasfuck/top.json?t=day&limit=25",
+    "Marketing": "https://www.reddit.com/r/marketing/top.json?t=day&limit=25",
+}
+
 def researcher_node(state):
-    feeds = {
-        "AI": "https://www.reddit.com/r/artificial/.rss",
-        "Tech": "https://www.reddit.com/r/technology/.rss",
-        "Science": "https://www.reddit.com/r/science/.rss",
-        "Futurology": "https://www.reddit.com/r/futurology/.rss",
-        "Interesting": "https://www.reddit.com/r/interestingasfuck/.rss",
-        "Marketing": "https://www.reddit.com/r/marketing/.rss"
-    }
     hot_posts = []
-    for category, url in feeds.items():
+    for category, url in FEEDS.items():
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:5]:
-                ups = int(entry.get("ups", 0))
-                if ups > 1000:
+            r = requests.get(url, headers=UA, timeout=20)
+            r.raise_for_status()
+            data = r.json()["data"]["children"]
+            for post in data:
+                d = post["data"]
+                ups = d.get("ups", 0)
+                if ups >= 500:  # spusti prag po volji
                     hot_posts.append({
-                        "title": entry.title,
-                        "summary": entry.summary[:500],
-                        "url": entry.link,
+                        "title": d.get("title", "")[:280],
+                        "summary": (d.get("selftext") or d.get("title") or "")[:600],
+                        "url": "https://www.reddit.com" + d.get("permalink",""),
                         "ups": ups,
                         "category_hint": category
                     })
-        except:
+        except Exception:
             continue
+
     if not hot_posts:
         return {"status": "no_posts", "messages": [HumanMessage(content="No trending posts found")]}
 
