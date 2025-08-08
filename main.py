@@ -18,19 +18,22 @@ def one_cycle():
     print("[worker] cycle done", flush=True)
 
 def main_loop():
-    sleep_secs = 7200  # 2h između ciklusa
-    backoff = 5        # početni backoff na grešku (sek)
+    sleep_secs = 7200  # 2h
+    backoff = 5
     while not SHUTDOWN:
         try:
             one_cycle()
-            backoff = 5  # reset backoff-a ako je uspešno
-            for _ in range(sleep_secs):
-                if SHUTDOWN: break
+            backoff = 5
+            elapsed = 0
+            while elapsed < sleep_secs and not SHUTDOWN:
+                # heartbeat svake minute
+                if elapsed % 60 == 0:
+                    print(f"[worker] alive - waiting {sleep_secs - elapsed}s", flush=True)
                 time.sleep(1)
+                elapsed += 1
         except Exception as e:
             print("[worker] cycle error:", e, flush=True)
             traceback.print_exc()
-            # exponential backoff do max 5 min
             time.sleep(min(backoff, 300))
             backoff = min(backoff * 2, 300)
 
