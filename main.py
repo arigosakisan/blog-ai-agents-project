@@ -1,53 +1,40 @@
-from langgraph.graph import StateGraph, END
-from typing import Dict, Any
+import os, time, signal, sys, traceback
 
-from agents.researcher import researcher_node
-from agents.curator import curator_node
-from agents.writer import writer_node
-from agents.editor import editor_node
-from agents.publisher import publisher_node
+SHUTDOWN = False
 
-class AgentState(Dict):
-    messages: list
-    category: str
-    original_post: dict
-    draft_article: str
-    final_article: str
-    image_url: str
-    status: str
-    needs_human_review: bool
+def handle_signal(signum, frame):
+    # uredan prekid (Render po redeploy/scale šalje SIGTERM)
+    global SHUTDOWN
+    SHUTDOWN = True
+    print(f"[worker] got signal {signum}, shutting down...", flush=True)
 
-# Build the workflow
-workflow = StateGraph(AgentState)
+for sig in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(sig, handle_signal)
 
-workflow.add_node("researcher", researcher_node)
-workflow.add_node("curator", curator_node)
-workflow.add_node("writer", writer_node)
-workflow.add_node("editor", editor_node)
-workflow.add_node("publisher", publisher_node)
+def one_cycle():
+    # >>> ovde stavi tvoj jedan ciklus: reddit -> AI -> wordpress <<<
+    print("[worker] cycle start", flush=True)
+    # ... tvoja logika ...
+    print("[worker] cycle done", flush=True)
 
-workflow.set_entry_point("researcher")
-workflow.add_edge("researcher", "curator")
-workflow.add_edge("curator", "writer")
-workflow.add_edge("writer", "editor")
-workflow.add_edge("editor", "publisher")
-workflow.add_edge("publisher", END)
-
-def route_after_curator(state):
-    return END if state.get("status") == "rejected" else "writer"
-
-workflow.add_conditional_edges("curator", route_after_curator)
-
-app = workflow.compile()
-
-# Run every 2 hours
-if __name__ == "__main__":
-    import time
-    while True:
-        print("\n🔄 Starting new content cycle...")
+def main_loop():
+    sleep_secs = 7200  # 2h između ciklusa
+    backoff = 5        # početni backoff na grešku (sek)
+    while not SHUTDOWN:
         try:
-            result = app.invoke({"messages": [], "status": "start"})
-            print("✅ Cycle completed successfully.")
+            one_cycle()
+            backoff = 5  # reset backoff-a ako je uspešno
+            for _ in range(sleep_secs):
+                if SHUTDOWN: break
+                time.sleep(1)
         except Exception as e:
-            print(f"❌ Error: {str(e)}")
-        time.sleep(2 * 60 * 60)  # 2 hours
+            print("[worker] cycle error:", e, flush=True)
+            traceback.print_exc()
+            # exponential backoff do max 5 min
+            time.sleep(min(backoff, 300))
+            backoff = min(backoff * 2, 300)
+
+if __name__ == "__main__":
+    print("[worker] starting...", flush=True)
+    main_loop()
+    print("[worker] stopped.", flush=True)
