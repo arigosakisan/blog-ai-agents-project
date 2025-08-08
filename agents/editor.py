@@ -1,28 +1,13 @@
-# agents/editor.py
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-def editor_node(state):
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2)
-    prompt = f"""
-You are a senior editor. Review this draft:
+_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2, max_tokens=1200)
 
-Category: {state['category']}
-Draft:
-{state['draft_article']}
+PROMPT = """You are an editor. Improve the draft while keeping Markdown structure intact:
+- Fix grammar, tighten sentences
+- Keep headings, bullets, and links
+- Ensure a strong intro and conclusion
+- Keep Serbian language
+Return ONLY the revised Markdown, no extra commentary.
 
-Check for:
-- Clarity and flow
-- Natural, human tone
-- Fluff, hype, or robotic language
-- Grammar and readability
-- Suggest one improvement
-
-Return only the improved version. No comments.
-"""
-    response = llm.invoke([HumanMessage(content=prompt)])
-    return {
-        "final_article": response.content,
-        "messages": [HumanMessage(content="Editor: article polished")],
-        "status": "edited"
-    }
+DRAFT:
