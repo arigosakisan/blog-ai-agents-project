@@ -1,20 +1,17 @@
 services:
-  - type: web
+  - type: worker
     name: reddit-ai-agent
     runtime: python
-    envVars:
-      - key: OPENAI_API_KEY
-        fromGroup: ai-secrets
-        required: true
-      - key: LANGCHAIN_API_KEY
-        fromGroup: ai-secrets
-        required: true
-      - key: WORDPRESS_URL
-        fromSecret: WORDPRESS_URL
-      - key: WORDPRESS_USERNAME
-        fromSecret: WORDPRESS_USERNAME
-      - key: WORDPRESS_PASSWORD
-        fromSecret: WORDPRESS_PASSWORD
-    buildCommand: pip install -r requirements.txt
+    plan: starter        # worker traži bar Starter plan
+    branch: main
+    rootDir: .
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: python main.py
-    plan: free
+    envVars:
+      - fromGroup: ai-secrets   # OPENAI_API_KEY, LANGCHAIN_API_KEY u ovoj grupi
+      - key: WORDPRESS_URL
+        sync: false
+      - key: WORDPRESS_USERNAME
+        sync: false
+      - key: WORDPRESS_PASSWORD
+        sync: false
