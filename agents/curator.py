@@ -1,37 +1,63 @@
-# agents/curator.py
+import json
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-import json
 
-def curator_node(state):
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    prompt = f"""
-    You are a senior content curator. Analyze this Reddit post:
+ALLOWED = {"AI", "Tech", "Science", "Futurology", "Marketing", "Interesting"}
 
-    Title: {state['original_post']['title']}
-    Summary: {state['original_post']['summary']}
+_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
 
-    Decide:
-    1. Final category: AI, Tech, Science, Futurology, Marketing, Interesting
-    2. Is it worth a full blog post? (Yes/No)
-    3. Brief reason
+PROMPT = """You are a strict curator. Decide:
+1) category (one of: AI, Tech, Science, Futurology, Marketing, Interesting)
+2) worthy (true/false) — should we write an article?
 
-    Respond in JSON:
-    {{ "category": "...", "worthy": true/false, "reason": "..." }}
-    """
-    response = llm.invoke([HumanMessage(content=prompt)])
+Return pure JSON: {{"category": "...", "worthy": true}}
+
+Title: {title}
+Summary: {summary}
+URL: {url}
+"""
+
+def _safe_json(text: str):
     try:
-        result = json.loads(response.content)
-    except:
-        result = {"category": "Interesting", "worthy": True, "reason": "Fallback"}
+        return json.loads(text)
+    except Exception:
+        # pokušaj da izdvojiš JSON blok
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end+1])
+            except Exception:
+                pass
+    return {}
 
-    if not result["worthy"]:
+def curator_node(state: dict) -> dict:
+    post = state.get("original_post") or {}
+    title = post.get("title", "").strip()
+    summary = post.get("summary", "").strip()
+    url = post.get("url", "").strip()
+
+    if not title:
         return {
-            "status": "rejected",
-            "messages": [HumanMessage(content=f"Rejected: {result['reason']}")]
+            "status": "skip",
+            "messages": [HumanMessage(content="No original_post; skipping curation")]
         }
+
+    resp = _llm.invoke(PROMPT.format(title=title, summary=summary, url=url))
+    data = _safe_json(resp.content)
+
+    cat = (data.get("category") or post.get("category_hint") or "Interesting").strip().title()
+    worthy = data.get("worthy", True)
+    if isinstance(worthy, str):
+        worthy = worthy.strip().lower() in {"true", "yes", "y", "1"}
+
+    if cat not in ALLOWED:
+        cat = "Interesting"
+
+    status = "curated" if worthy else "rejected"
     return {
-        "category": result["category"],
-        "status": "curated",
-        "messages": [HumanMessage(content=f"Curated as: {result['category']}")]
+        "status": status,
+        "category": cat,
+        "worthy": worthy,
+        "messages": [HumanMessage(content=f"Curated: {title[:60]}... -> {cat} / worthy={worthy}")]
     }
