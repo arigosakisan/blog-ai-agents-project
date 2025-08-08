@@ -1,4 +1,3 @@
-# agents/researcher.py
 import requests
 from langchain_core.messages import HumanMessage
 
@@ -13,7 +12,9 @@ FEEDS = {
     "Marketing": "https://www.reddit.com/r/marketing/top.json?t=day&limit=25",
 }
 
-def researcher_node(state):
+MIN_UPS = 500  # po želji
+
+def researcher_node(state: dict) -> dict:
     hot_posts = []
     for category, url in FEEDS.items():
         try:
@@ -23,23 +24,27 @@ def researcher_node(state):
             for post in data:
                 d = post["data"]
                 ups = d.get("ups", 0)
-                if ups >= 500:  # spusti prag po volji
+                if ups >= MIN_UPS:
                     hot_posts.append({
-                        "title": d.get("title", "")[:280],
-                        "summary": (d.get("selftext") or d.get("title") or "")[:600],
-                        "url": "https://www.reddit.com" + d.get("permalink",""),
+                        "title": (d.get("title") or "")[:280],
+                        "summary": (d.get("selftext") or d.get("title") or "")[:700],
+                        "url": "https://www.reddit.com" + d.get("permalink", ""),
                         "ups": ups,
                         "category_hint": category
                     })
-        except Exception:
+        except Exception as e:
+            print(f"[researcher] feed error {category}: {e}", flush=True)
             continue
 
     if not hot_posts:
-        return {"status": "no_posts", "messages": [HumanMessage(content="No trending posts found")]}
+        return {
+            "status": "no_posts",
+            "messages": [HumanMessage(content="No trending posts found")]
+        }
 
     best_post = max(hot_posts, key=lambda x: x["ups"])
     return {
+        "status": "research_done",
         "original_post": best_post,
-        "messages": [HumanMessage(content=f"Found post: {best_post['title']}")],
-        "status": "research_done"
+        "messages": [HumanMessage(content=f"Found post: {best_post['title']} ({best_post['ups']} ups)")]
     }
