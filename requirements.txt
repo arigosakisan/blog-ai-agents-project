@@ -5,4 +5,5 @@ feedparser
 openai
 requests
 pydantic
+gunicorn
 python-dotenv
