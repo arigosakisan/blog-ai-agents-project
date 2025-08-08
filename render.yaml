@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: reddit-ai-agent
+    name: blog-ai-agents
     runtime: python
     plan: starter
     branch: main
