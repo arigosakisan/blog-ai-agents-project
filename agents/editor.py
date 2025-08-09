@@ -1,24 +1,47 @@
-# agents/editor.py
+# agents/writer.py
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-PROMPT = """You are an editor. Improve the draft while keeping Markdown structure intact:
-- Preserve all headings, subheadings, lists, and links.
-- Correct grammar, spelling, and clarity.
-- Keep the tone friendly but professional.
-- Do not remove factual content.
-- Only return the improved text, without extra comments.
+_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5, max_tokens=1200)
+
+PROMPT = """Write a blog post in clean Markdown for Trend Squeeze.
+Constraints:
+- Language: English (en)
+- Audience: tech/AI/marketing-savvy readers
+- Structure: H1 title, intro, 3–5 H2 sections, short paragraphs, bullets where useful, conclusion
+- Tone: clear, practical, mildly energetic
+- Include sources/links if useful (few, credible)
+- Avoid clickbait; be specific
+- Output must end with a line: [IMAGE_PROMPT]: <short description for a wide 1792x1024 header>
+
+Context:
+Category: {category}
+Original Title: {title}
+Summary/Notes: {summary}
+Source URL: {url}
 """
 
-def editor_node(state: dict) -> dict:
-    if "draft" not in state or not state["draft"]:
-        return {
-            "status": "no_draft",
-            "messages": [HumanMessage(content="No draft found for editing.")]
-        }
-    
-    draft_text = state["draft"]
+def writer_node(state: dict) -> dict:
+    post = state.get("original_post", {})
+    if not post:
+        return {"status": "skip", "messages": [HumanMessage(content="No original_post; skipping writer")]}
+
+    category = state.get("category") or post.get("category_hint") or "Interesting"
+    resp = _llm.invoke(PROMPT.format(
+        category=category,
+        title=post.get("title", ""),
+        summary=post.get("summary", ""),
+        url=post.get("url", ""),
+    ))
+    content = resp.content.strip()
+    marker = "[IMAGE_PROMPT]:"
+    image_prompt = "Neutral editorial header, technology, minimal, wide 1792x1024"
+    if marker in content:
+        image_prompt = content.split(marker, 1)[1].strip().strip("[] ").strip()
+
     return {
-        "status": "edit_done",
-        "edited_post": draft_text,  # in real case, call LLM to improve draft
-        "messages": [HumanMessage(content=f"Edited draft:\n\n{draft_text}")]
+        "status": "draft_ready",
+        "draft_article": content,
+        "image_prompt": image_prompt,
+        "messages": [HumanMessage(content=f"Draft ready ({len(content)} chars)")]
     }
