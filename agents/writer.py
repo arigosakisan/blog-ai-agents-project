@@ -12,7 +12,8 @@ Constraints:
 - Tone: clear, practical, mildly energetic
 - Include sources/links if useful (few, credible)
 - Avoid clickbait; be specific
-- Output must end with a line: [IMAGE_PROMPT]: <short description for a wide 1792x1024 header>
+- End the output with exactly one line:
+  [IMAGE_PROMPT]: <short description for a wide 1792x1024 header>
 
 Context:
 Category: {category}
@@ -24,18 +25,25 @@ Source URL: {url}
 def writer_node(state: dict) -> dict:
     post = state.get("original_post", {})
     if not post:
-        return {"status": "skip", "messages": [HumanMessage(content="No original_post; skipping writer")]}
+        return {
+            "status": "skip",
+            "messages": [HumanMessage(content="No original_post; skipping writer")]
+        }
 
     category = state.get("category") or post.get("category_hint") or "Interesting"
+
     resp = _llm.invoke(PROMPT.format(
         category=category,
         title=post.get("title", ""),
         summary=post.get("summary", ""),
         url=post.get("url", ""),
     ))
+
     content = resp.content.strip()
+
+    # Extract [IMAGE_PROMPT]
+    image_prompt = "Neutral editorial header, technology/innovation, minimal, wide 1792x1024"
     marker = "[IMAGE_PROMPT]:"
-    image_prompt = "Neutral editorial header, technology, minimal, wide 1792x1024"
     if marker in content:
         image_prompt = content.split(marker, 1)[1].strip().strip("[] ").strip()
 
