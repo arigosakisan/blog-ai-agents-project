@@ -1,6 +1,6 @@
 services:
   - type: worker
-    name: blog-ai-agents
+    name: reddit-ai-agent
     runtime: python
     plan: starter
     branch: main
@@ -8,10 +8,16 @@ services:
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: python -u main.py
     envVars:
-      - fromGroup: ai-secrets
+      - fromGroup: ai-secrets    # ako koristiš grupu za OPENAI/LANGCHAIN, nije obavezno
       - key: WORDPRESS_URL
         sync: false
       - key: WORDPRESS_USERNAME
         sync: false
       - key: WORDPRESS_PASSWORD
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: REDDIT_USER_AGENT
         sync: false
