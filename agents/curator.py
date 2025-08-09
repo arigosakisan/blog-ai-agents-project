@@ -10,7 +10,8 @@ PROMPT = """You are a strict curator. Decide:
 1) category (one of: AI, Tech, Science, Futurology, Marketing, Interesting)
 2) worthy (true/false) — should we write an article?
 
-Return pure JSON: {"category": "...", "worthy": true}
+Return pure JSON exactly like this (no extra text):
+{{"category": "...", "worthy": true}}
 
 Title: {title}
 Summary: {summary}
