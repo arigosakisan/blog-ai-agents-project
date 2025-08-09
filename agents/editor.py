@@ -8,9 +8,11 @@ PROMPT = """You are an editor. Improve the draft while keeping Markdown structur
 - Return ONLY the improved Markdown, no extra text
 
 DRAFT:
-"""
+```
+{draft}
+```"""
+
 def _get_llm():
-    # Lazy import to avoid import-time failures breaking module import
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(model="gpt-4o-mini", temperature=0.2, max_tokens=1200)
 
@@ -21,7 +23,6 @@ def editor_node(state: dict) -> dict:
             "status": "skip",
             "messages": [HumanMessage(content="No draft_article; skipping editor")]
         }
-
     try:
         llm = _get_llm()
         resp = llm.invoke(PROMPT.format(draft=draft))
@@ -32,7 +33,6 @@ def editor_node(state: dict) -> dict:
             "messages": [HumanMessage(content="Final ready")]
         }
     except Exception as e:
-        # Ne ruši ceo graf: jasno prijavi šta je pošlo naopako
         return {
             "status": "error",
             "messages": [HumanMessage(content=f"Editor failed: {e}")]
