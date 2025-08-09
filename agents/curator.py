@@ -50,9 +50,11 @@ def curator_node(state: dict) -> dict:
     if cat not in ALLOWED:
         cat = "Interesting"
 
+    # PASS-THROUGH original_post kako bi writer SIGURNO imao pristup
     return {
         "status": "curated" if worthy else "rejected",
         "category": cat,
         "worthy": worthy,
+        "original_post": post,
         "messages": [HumanMessage(content=f"Curated: {title[:60]}... -> {cat} / worthy={worthy}")]
     }
