@@ -27,14 +27,14 @@ def _wp_auth_headers() -> dict:
 
 def _generate_image_b64(prompt: str | None) -> str | None:
     """
-    Generate a 1792x1024 header image using OpenAI Images API.
+    Generate a 1536x1024 header image using OpenAI Images API.
     Novi SDK vraća b64_json podrazumevano, ne prosleđujemo response_format.
     """
     try:
         resp = client.images.generate(
             model="gpt-image-1",
-            prompt=prompt or "Wide blog header image, 1792x1024, clean, modern, editorial",
-            size="1792x1024",
+            prompt=prompt or "Wide blog header image, 1536x1024, clean, modern, editorial",
+            size="1536x1024",
             n=1,
         )
         return resp.data[0].b64_json
