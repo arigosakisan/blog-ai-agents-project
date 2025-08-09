@@ -8,7 +8,7 @@ PROMPT = """You are an editor. Improve the draft while keeping Markdown structur
 - Return ONLY the improved Markdown, no extra text
 
 DRAFT:
-
+"""
 def _get_llm():
     # Lazy import to avoid import-time failures breaking module import
     from langchain_openai import ChatOpenAI
