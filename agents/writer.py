@@ -10,10 +10,11 @@ ALLOWED_CATEGORIES: List[str] = [
     "Futurology",
     "AI",
     "Interesting",
+    "Trends",
 ]
 
 def _get_llm():
-    # Stable, good style, and fast enough for server use
+    # Stable & fast enough for server
     return ChatOpenAI(model="gpt-4o-mini", temperature=0.4, max_tokens=1800)
 
 # ---------- SYSTEM PROMPTS ----------
@@ -91,7 +92,6 @@ Intended usage: hero (wide) + two inline squares; should work for both.
 
 # ---------- HELPERS ----------
 def _normalize_category(s: str) -> str:
-    # Keep exactly as one of ALLOWED_CATEGORIES; fallback to "Tech" if mismatch
     s = (s or "").strip()
     for cat in ALLOWED_CATEGORIES:
         if s.lower() == cat.lower():
@@ -111,14 +111,12 @@ def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
       - draft_article: str (Markdown, EN)
       - image_prompt: str (one-line base prompt)
       - category: str (one of ALLOWED_CATEGORIES)
-      - messages: [HumanMessage,...] (for tracing)
+      - messages: [HumanMessage,...]
     """
     post = state.get("curated_post") or state.get("original_post") or {}
     title = (post.get("title") or "").strip()
     summary = (post.get("summary") or "").strip()
     url = (post.get("url") or post.get("link") or "").strip()
-
-    # Optional hint coming from upstream (if present, we'll consider it)
     upstream_hint = (post.get("category_hint") or state.get("category") or "").strip()
 
     if not (title or summary or url):
@@ -129,7 +127,7 @@ def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     llm = _get_llm()
 
-    # 1) Classify category (forced into the allowed set)
+    # 1) Classify category (force to allowed set)
     try:
         cls_resp = llm.invoke([
             SystemMessage(content=CLASSIFY_SYSTEM),
@@ -141,12 +139,7 @@ def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
             ))
         ])
         category = _normalize_category(cls_resp.content.strip())
-        # If upstream hinted and valid, you could prefer it — but we keep model's choice authoritative.
-        # If you want upstream to override, uncomment:
-        # if upstream_hint:
-        #     category = _normalize_category(upstream_hint)
     except Exception:
-        # Fallback if classification fails
         category = _normalize_category(upstream_hint or "Tech")
 
     # 2) Write the article (Markdown)
@@ -156,7 +149,6 @@ def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
             HumanMessage(content=WRITER_USER_TMPL.format(title=title, summary=summary, url=url))
         ])
         draft_article = (md_resp.content or "").strip()
-        # Basic sanity
         if not draft_article or len(draft_article) < 300 or "\n#" not in draft_article:
             return {
                 "status": "error",
