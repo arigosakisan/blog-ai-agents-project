@@ -1,37 +1,44 @@
 # agents/publisher.py
 import os
+import re
 import base64
 import requests
+from typing import List, Tuple
 from langchain_core.messages import HumanMessage
 
-# ---------- OpenAI Images ----------
+# ---------------- OpenAI client ----------------
 try:
-    # OpenAI SDK v1.x
     import openai
-    client = openai.OpenAI()
+    client = openai.OpenAI()  # OpenAI SDK v1.x
 except Exception:
-    client = None  # ako SDK nije dostupan, preskoči slike
+    client = None
 
-# ---------- Config ----------
-# Postavi u Render env:
+# ---------------- Config ----------------
+# Set these in Render env:
 # WORDPRESS_URL=https://api.trendsqueeze.com
-# WORDPRESS_USERNAME=<wp user>
-# WORDPRESS_PASSWORD=<wp application password>
-# (opciono) IMAGE_ENABLED=true|false
-# (opciono) WP_USER_AGENT=trendsqueeze-agent/1.0 (+https://trendsqueeze.com)
+# WORDPRESS_USERNAME=<wp_user_login>               (best: a user with Author role or higher)
+# WORDPRESS_PASSWORD=<wp_application_password>     (Users → Profile → Application Passwords)
+# Optional:
+#   WP_USER_AGENT=trendsqueeze-agent/1.0 (+https://trendsqueeze.com)
 
-IMAGE_ENABLED = os.getenv("IMAGE_ENABLED", "true").lower() == "true"
 UA = os.getenv("WP_USER_AGENT", "trendsqueeze-agent/1.0 (+https://trendsqueeze.com)")
 
+# ---------------- Helpers: URL / Auth ----------------
 def _wp_base_url() -> str:
+    """
+    Returns clean base like 'https://api.trendsqueeze.com' even if env
+    accidentally contains '/wp-json' suffix.
+    """
     url = (os.getenv("WORDPRESS_URL") or "https://api.trendsqueeze.com").strip()
-    if not url:
-        raise RuntimeError("Missing WORDPRESS_URL")
-    return url.rstrip("/")
+    url = url.rstrip("/")
+    j = url.find("/wp-json")
+    if j != -1:
+        url = url[:j]
+    return url
 
 def _wp_auth_headers() -> dict:
-    user = os.getenv("WORDPRESS_USERNAME", "").strip()
-    pwd = os.getenv("WORDPRESS_PASSWORD", "").strip()
+    user = (os.getenv("WORDPRESS_USERNAME") or "").strip()
+    pwd  = (os.getenv("WORDPRESS_PASSWORD") or "").strip()
     if not user or not pwd:
         raise RuntimeError("Missing WORDPRESS_USERNAME or WORDPRESS_PASSWORD")
     token = base64.b64encode(f"{user}:{pwd}".encode()).decode()
@@ -54,110 +61,133 @@ def _headers_media(filename: str) -> dict:
         "Accept": "application/json",
     }
 
-# ---------- Image generation ----------
-def _generate_image_b64(prompt: str | None) -> str | None:
+# ---------------- OpenAI Images ----------------
+def _gen_image_b64(prompt: str, size: str) -> str:
     """
-    Generate a wide header image via OpenAI Images API.
-    Uses size 1536x1024. Returns base64 (no data: prefix).
+    Generate an image via OpenAI (required).
+    size allowed: 1024x1024, 1024x1536, 1536x1024, or 'auto'.
+    Returns base64 without data: prefix.
     """
-    if not IMAGE_ENABLED:
-        return None
     if client is None:
-        print("ℹ️ OpenAI client not available; skipping image.", flush=True)
-        return None
-    try:
-        resp = client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt or "Wide editorial blog header, clean, modern, technology theme",
-            size="1536x1024",
-            n=1,
-        )
-        return resp.data[0].b64_json
-    except Exception as e:
-        print(f"⚠️ Image generation failed: {e}", flush=True)
-        return None
+        raise RuntimeError("OpenAI client not available for image generation")
+    resp = client.images.generate(
+        model="gpt-image-1",
+        prompt=prompt,
+        size=size,
+        n=1,
+    )
+    return resp.data[0].b64_json
 
-def _upload_featured_image_to_wp(image_b64: str, filename: str = "header.png") -> tuple[int, str]:
+# ---------------- WordPress Media / Posts ----------------
+def _upload_media(image_b64: str, filename: str) -> Tuple[int, str]:
     """
-    Upload PNG to WordPress Media Library.
-    Returns: (media_id, source_url)
+    Upload PNG to WP Media. Returns (media_id, source_url).
+    Raises RuntimeError on any non-2xx.
     """
     media_url = _wp_base_url() + "/wp-json/wp/v2/media"
     binary = base64.b64decode(image_b64)
-    r = requests.post(media_url, headers=_headers_media(filename), data=bytearray(binary), timeout=90)
+    r = requests.post(media_url, headers=_headers_media(filename), data=bytearray(binary), timeout=120)
     try:
         r.raise_for_status()
     except Exception as e:
-        snippet = (r.text or "")[:300]
+        snippet = (r.text or "")[:400]
         raise RuntimeError(f"WP media upload failed: {r.status_code} {snippet}") from e
-
     j = r.json()
-    media_id = j.get("id")
-    source_url = j.get("source_url")
-    if not media_id or not source_url:
+    mid = j.get("id")
+    src = j.get("source_url")
+    if not mid or not src:
         raise RuntimeError(f"WP media upload malformed response: {j}")
-    return media_id, source_url
+    return mid, src
 
-def _create_wp_post(title: str, content_html: str, featured_media_id: int | None = None) -> dict:
+def _create_post(title: str, content_html: str, featured_media_id: int) -> dict:
+    """
+    Create a published post with featured image. Requires Author+ permissions.
+    """
     posts_url = _wp_base_url() + "/wp-json/wp/v2/posts"
     payload = {
         "title": title,
         "content": content_html,
-        "status": "publish",  # promeni u "draft" ako želiš da ručno pregledaš
+        "status": "publish",            # change to "draft" if you want review first
+        "featured_media": featured_media_id,
     }
-    if featured_media_id:
-        payload["featured_media"] = featured_media_id
-
-    r = requests.post(posts_url, json=payload, headers=_headers_json(), timeout=90)
+    r = requests.post(posts_url, json=payload, headers=_headers_json(), timeout=120)
     if r.status_code == 201:
         return r.json()
-    raise RuntimeError(f"WP post create failed: {r.status_code} {(r.text or '')[:300]}")
+    raise RuntimeError(f"WP post create failed: {r.status_code} {(r.text or '')[:400]}")
 
-# ---------- Publisher node ----------
+# ---------------- Content helpers ----------------
+_H2_RE = re.compile(r"^##\s+", re.M)
+
+def _insert_inline_images(markdown: str, urls: List[str]) -> str:
+    """
+    Insert 2–3 inline images right after first H2; if no H2, append at end.
+    """
+    blocks = [f'\n\n![inline image]({u})\n' for u in urls]
+    inject = "".join(blocks)
+    m = _H2_RE.search(markdown)
+    if m:
+        idx = m.end()
+        return markdown[:idx] + "\n" + inject + markdown[idx:]
+    return markdown.rstrip() + "\n" + inject + "\n"
+
+# ---------------- Publisher Node ----------------
 def publisher_node(state: dict) -> dict:
     """
-    Input state:
-      - final_article (Markdown as string)
-      - image_prompt (optional)
-    Output state keys:
-      - status: "published" | "wp_error" | "error"
-      - post_id, post_link, featured_media_id (optional)
+    Requires in state:
+      - final_article (Markdown, English)
+      - image_prompt (optional; base idea for images)
+
+    Enforces:
+      - 1 featured (1536x1024) + 2 inline (1024x1024). If any generation/upload fails → wp_error.
     """
-    final_article = (state.get("final_article") or "").strip()
-    if not final_article:
+    final_md = (state.get("final_article") or "").strip()
+    if not final_md:
         return {"status": "error", "messages": [HumanMessage(content="No final_article to publish")]}
 
-    # Title = first line (strip '#')
-    first_line = final_article.split("\n", 1)[0].lstrip("# ").strip()
-    title = (first_line or "Untitled")[:200]
+    # Title from first line (strip '#')
+    first_line = final_md.split("\n", 1)[0].lstrip("# ").strip()
+    title = (first_line or "Untitled").strip()[:200]
 
-    # Try hero image (non-blocking)
-    featured_id = None
-    featured_src = None
-    img_b64 = _generate_image_b64(state.get("image_prompt"))
-    if img_b64:
-        try:
-            featured_id, featured_src = _upload_featured_image_to_wp(img_b64, "header.png")
-        except Exception as e:
-            print(f"⚠️ WP image upload failed: {e}", flush=True)
+    base_prompt = (state.get("image_prompt") or f"Editorial blog imagery for: {title}. Clean, modern, tech-journal style, no text overlays.").strip()
 
-    # Compose content (WP accepts HTML; Markdown je OK, WP ga prikaže, ali ubacujemo <figure> za hero)
-    content_body = final_article
-    if featured_src:
-        hero = f'<figure class="wp-block-image"><img src="{featured_src}" alt=""/></figure>\n\n'
-        content_body = hero + content_body
+    # Debug the exact endpoints once (useful if 404 ever appears)
+    base = _wp_base_url()
+    print(f"[wp] base={base} posts_url={base + '/wp-json/wp/v2/posts'} media_url={base + '/wp-json/wp/v2/media'}", flush=True)
 
     try:
-        post = _create_wp_post(title, content_body, featured_media_id=featured_id)
-        print("✅ Article published to WordPress!", flush=True)
+        # -------- 1) Featured (hero) image --------
+        hero_b64 = _gen_image_b64(base_prompt + " — wide hero image, aesthetic, editorial, no text.", "1536x1024")
+        hero_id, hero_src = _upload_media(hero_b64, "hero.png")
+
+        # -------- 2) Two inline images --------
+        inline_prompts = [
+            base_prompt + " — square illustrative detail #1, minimal, no text.",
+            base_prompt + " — square illustrative detail #2, minimal, no text."
+        ]
+        inline_urls: List[str] = []
+        for i, p in enumerate(inline_prompts, start=1):
+            b64 = _gen_image_b64(p, "1024x1024")
+            _, src = _upload_media(b64, f"inline{i}.png")
+            inline_urls.append(src)
+
+        # -------- 3) Build final content: hero + markdown + inline blocks --------
+        body_with_inline = _insert_inline_images(final_md, inline_urls)
+        hero_html = f'<figure class="wp-block-image"><img src="{hero_src}" alt=""/></figure>\n\n'
+        content_html = hero_html + body_with_inline
+
+        # -------- 4) Create post with featured --------
+        post = _create_post(title, content_html, featured_media_id=hero_id)
+
+        print("✅ Article with featured + 2 inline images published to WordPress!", flush=True)
         return {
             "status": "published",
             "post_id": post.get("id"),
             "post_link": post.get("link"),
-            "featured_media_id": featured_id,
-            "messages": [HumanMessage(content="Published to WordPress")],
+            "featured_media_id": hero_id,
+            "messages": [HumanMessage(content="Published with featured + 2 inline images")],
         }
+
     except Exception as e:
-        # tipično: 403 (ako nisi na api.* ili plugin/firewall blokira)
-        print(f"⚠️ WordPress error: {e}", flush=True)
+        # strict: any failure (image gen/upload or post create) → error (no publish)
+        print(f"⚠️ WordPress image/post error: {e}", flush=True)
         return {"status": "wp_error", "messages": [HumanMessage(content=f"WP error: {e}")]}
