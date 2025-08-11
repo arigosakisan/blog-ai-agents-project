@@ -25,13 +25,14 @@ UA = os.getenv("WP_USER_AGENT", "trendsqueeze-agent/1.0 (+https://trendsqueeze.c
 
 # Slugovi iz tvog sajta (prema /wp-json/wp/v2/categories):
 CATEGORY_SLUG_MAP = {
-    "Marketing": "marketing",      # id=31
-    "Tech": "tech",                # id=33
-    "Science": "science",          # id=32
-    "Futurology": "futurology",    # id=36
-    "AI": "ai",                    # id=37
-    "Interesting": "interesting",  # id=35
-    "Trends": "trends",            # id=26
+    "Marketing": "marketing" (id=31)
+    "Tech": "tech" (id=33)
+    "Science": "science" (id=32)
+    "Futurology": "futurology" (id=36)
+    "AI": "ai" (id=37)
+    "Interesting": "interesting" (id=35)
+    "Trends": "trends" (id=26)
+
 }
 
 def _wp_default_cat_id() -> Optional[int]:
