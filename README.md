@@ -76,7 +76,7 @@ Update the configuration file with your preferences:
 
 ```python
 # Subreddits to monitor
-SUBREDDITS = ["technology", "science", "business", "AI"]
+SUBREDDITS = ["AI", "Tech", "Science", "Futurology", "Marketing", "Interesting"]
 
 # Publishing settings
 POST_FREQUENCY = "daily"
